@@ -117,17 +117,55 @@ type ServerConfig struct {
 }
 ```
 
+## Debugging Configuration
+
+The library provides a `Debug` function to help troubleshoot configuration issues by converting your config structs into readable debug strings. Sensitive fields (like passwords, API keys) are automatically masked for security.
+
+### Debug Function
+
+```go
+// Debug transforms a config struct recursively into a string for debugging.
+// Sensitive attributes (matching keywords in sensitiveKeys) are masked with "***".
+debugOutput := config.Debug(yourConfig, []string{"pass", "secret", "key", "dsn"})
+fmt.Print(debugOutput)
+```
+
+### Example Usage
+
+```go
+type AppConfig struct {
+    Host     string
+    Port     int
+    Password string
+    APIKey   string
+}
+
+config := AppConfig{
+    Host:     "localhost",
+    Port:     8080,
+    Password: "secret123",
+    APIKey:   "api_key_abc",
+}
+
+// Sensitive fields will be masked automatically
+sensitiveKeys := []string{"pass", "key", "secret"}
+debugOutput := config.Debug(config, sensitiveKeys)
+fmt.Print(debugOutput)
+```
+
 ## Examples
 
 For complete working examples, see the [`_examples`](_examples/) directory:
 
-- **[Basic Example](_examples/main.go)**: Demonstrates composite configuration with database, Redis, and server configs
+- **[Configuration Loading](_examples/config_load.go)**: Demonstrates composite configuration with database, Redis, and server configs
+- **[Debug Configuration](_examples/debug.go)**: Shows how to debug configuration as a string with sensitive field masking
 
-Run the example:
+Run the examples:
 
 ```bash
 cd _examples
-go run main.go
+go run config_load.go
+go run debug.go
 ```
 
 ## Requirements

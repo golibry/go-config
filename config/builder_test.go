@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -181,6 +182,205 @@ func (suite *ConfigTestSuite) TestItHandlesNonExistentEnvFiles() {
 
 	err := LoadEnvVars(nonExistentEnv, tempDir)
 	suite.Assert().NoError(err) // Should not error when files don't exist
+}
+
+// TestConfigDebugStringConfig is a test struct with various field types for testing Debug
+type TestConfigDebugStringConfig struct {
+	Host        string
+	Port        int
+	Password    string
+	DatabaseDSN string
+	SecretKey   string
+	APIKey      string
+	Debug       bool
+}
+
+// NestedTestConfig represents a nested configuration for testing
+type NestedTestConfig struct {
+	Database TestConfigDebugStringConfig
+	Redis    struct {
+		Host     string
+		Password string
+	}
+	Tags []string
+	Meta map[string]string
+}
+
+// TestItCanDebugConfigStringWithSensitiveMasking tests Debug with sensitive field masking
+func (suite *ConfigTestSuite) TestItCanDebugConfigStringWithSensitiveMasking() {
+	config := TestConfigDebugStringConfig{
+		Host:        "localhost",
+		Port:        5432,
+		Password:    "secretpassword",
+		DatabaseDSN: "postgres://user:pass@localhost/db",
+		SecretKey:   "mysecretkey",
+		APIKey:      "myapikey",
+		Debug:       true,
+	}
+
+	sensitiveKeys := []string{"pass", "secret", "key", "dsn"}
+	result := Debug(config, sensitiveKeys)
+
+	suite.Assert().Contains(result, "Config Debug Output:")
+	suite.Assert().Contains(result, "Host: localhost")
+	suite.Assert().Contains(result, "Port: 5432")
+	suite.Assert().Contains(result, "Debug: true")
+
+	// Sensitive fields should be masked using maskSensitiveData function
+	suite.Assert().Contains(result, "Password: s************d")
+	suite.Assert().Contains(result, "DatabaseDSN: p******************s@localhost/db")
+	suite.Assert().Contains(result, "SecretKey: m*********y")
+	suite.Assert().Contains(result, "APIKey: m******y")
+
+	// Ensure actual sensitive values are not in the output
+	suite.Assert().NotContains(result, "secretpassword")
+	suite.Assert().NotContains(result, "postgres://user:pass@localhost/db")
+	suite.Assert().NotContains(result, "mysecretkey")
+	suite.Assert().NotContains(result, "myapikey")
+}
+
+// TestItCanDebugConfigStringWithNestedStructs tests Debug with nested structures
+func (suite *ConfigTestSuite) TestItCanDebugConfigStringWithNestedStructs() {
+	config := NestedTestConfig{
+		Database: TestConfigDebugStringConfig{
+			Host:     "db-host",
+			Port:     5432,
+			Password: "dbpassword",
+		},
+		Redis: struct {
+			Host     string
+			Password string
+		}{
+			Host:     "redis-host",
+			Password: "redispassword",
+		},
+		Tags: []string{"prod", "db", "cache"},
+		Meta: map[string]string{
+			"version":    "1.0",
+			"secret_env": "prod-secret",
+		},
+	}
+
+	sensitiveKeys := []string{"pass", "secret"}
+	result := Debug(config, sensitiveKeys)
+
+	suite.Assert().Contains(result, "Config Debug Output:")
+	suite.Assert().Contains(result, "Database:")
+	suite.Assert().Contains(result, "Host: db-host")
+	suite.Assert().Contains(result, "Port: 5432")
+	suite.Assert().Contains(result, "Password: d********d")
+	suite.Assert().Contains(result, "Redis:")
+	suite.Assert().Contains(result, "Host: redis-host")
+	suite.Assert().Contains(result, "Password: r***********d")
+	suite.Assert().Contains(result, "Tags:")
+	suite.Assert().Contains(result, "[0]: prod")
+	suite.Assert().Contains(result, "[1]: db")
+	suite.Assert().Contains(result, "[2]: cache")
+	suite.Assert().Contains(result, "Meta:")
+	suite.Assert().Contains(result, "version: 1.0")
+	suite.Assert().Contains(result, "secret_env: p*********t")
+
+	// Ensure sensitive values are not exposed
+	suite.Assert().NotContains(result, "dbpassword")
+	suite.Assert().NotContains(result, "redispassword")
+	suite.Assert().NotContains(result, "prod-secret")
+}
+
+// TestItCanDebugConfigStringWithNilValues tests Debug with nil values
+func (suite *ConfigTestSuite) TestItCanDebugConfigStringWithNilValues() {
+	var config *TestConfigDebugStringConfig = nil
+	sensitiveKeys := []string{"pass", "secret"}
+
+	result := Debug(config, sensitiveKeys)
+
+	suite.Assert().Equal("Config Debug Output:\nnil\n", result)
+}
+
+// TestItCanDebugConfigStringWithEmptyStruct tests Debug with empty struct
+func (suite *ConfigTestSuite) TestItCanDebugConfigStringWithEmptyStruct() {
+	config := struct{}{}
+	sensitiveKeys := []string{"pass", "secret"}
+
+	result := Debug(config, sensitiveKeys)
+
+	suite.Assert().Contains(result, "Config Debug Output:")
+	// Empty struct should not have any field entries (lines with indentation and field names)
+	lines := strings.Split(result, "\n")
+	fieldLines := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "  ") { // Lines with indentation indicate fields
+			fieldLines++
+		}
+	}
+	suite.Assert().Equal(0, fieldLines, "Empty struct should have no field entries")
+}
+
+// TestItCanDebugConfigStringWithEmptySliceAndMap tests Debug with empty collections
+func (suite *ConfigTestSuite) TestItCanDebugConfigStringWithEmptySliceAndMap() {
+	config := struct {
+		EmptySlice []string
+		EmptyMap   map[string]string
+	}{
+		EmptySlice: []string{},
+		EmptyMap:   map[string]string{},
+	}
+
+	sensitiveKeys := []string{"pass", "secret"}
+	result := Debug(config, sensitiveKeys)
+
+	suite.Assert().Contains(result, "Config Debug Output:")
+	suite.Assert().Contains(result, "EmptySlice:")
+	suite.Assert().Contains(result, "[]")
+	suite.Assert().Contains(result, "EmptyMap:")
+	suite.Assert().Contains(result, "{}")
+}
+
+// TestItCanDebugConfigStringWithCaseInsensitiveSensitiveKeys tests case-insensitive matching
+func (suite *ConfigTestSuite) TestItCanDebugConfigStringWithCaseInsensitiveSensitiveKeys() {
+	config := struct {
+		PASSWORD   string
+		ApiKey     string
+		secretHash string
+		DSN        string
+	}{
+		PASSWORD:   "mypass",
+		ApiKey:     "mykey",
+		secretHash: "hash123",
+		DSN:        "connection-string",
+	}
+
+	sensitiveKeys := []string{"PASS", "key", "Secret", "dsn"}
+	result := Debug(config, sensitiveKeys)
+
+	// All should be masked due to case-insensitive matching
+	suite.Assert().Contains(result, "PASSWORD: m****s")
+	suite.Assert().Contains(result, "ApiKey: m***y")
+	suite.Assert().Contains(result, "DSN: c***************g")
+
+	// Ensure actual values are not exposed
+	suite.Assert().NotContains(result, "mypass")
+	suite.Assert().NotContains(result, "mykey")
+	suite.Assert().NotContains(result, "hash123")
+	suite.Assert().NotContains(result, "connection-string")
+}
+
+// TestItCanDebugConfigStringWithNoSensitiveKeys tests Debug without sensitive keys
+func (suite *ConfigTestSuite) TestItCanDebugConfigStringWithNoSensitiveKeys() {
+	config := TestConfigDebugStringConfig{
+		Host:     "localhost",
+		Port:     5432,
+		Password: "password123",
+		Debug:    false,
+	}
+
+	var sensitiveKeys []string // No sensitive keys
+	result := Debug(config, sensitiveKeys)
+
+	suite.Assert().Contains(result, "Config Debug Output:")
+	suite.Assert().Contains(result, "Host: localhost")
+	suite.Assert().Contains(result, "Port: 5432")
+	suite.Assert().Contains(result, "Password: password123") // Should not be masked
+	suite.Assert().Contains(result, "Debug: false")
 }
 
 // Run the test suite
