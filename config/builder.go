@@ -22,9 +22,12 @@ type CompositeConfig struct {
 }
 
 // NewCompositeConfig creates a new CompositeConfig with a validator instance.
-func NewCompositeConfig() *CompositeConfig {
+func NewCompositeConfig(customValidator *validator.Validate) *CompositeConfig {
+	if customValidator == nil {
+		customValidator = validator.New()
+	}
 	return &CompositeConfig{
-		validator: validator.New(),
+		validator: customValidator,
 	}
 }
 
